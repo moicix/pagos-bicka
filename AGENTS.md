@@ -699,6 +699,262 @@ Detect possible additions:
   });
   ```
 
+### UX/UI – Importador de Estados de Cuenta y Conciliación de Pagos (react-spreadsheet)
+
+#### Librería principal
+```tsx
+import Spreadsheet from "react-spreadsheet";
+// Documentación oficial: https://iddan.github.io/react-spreadsheet/docs/
+```
+
+#### Experiencia de usuario final (una sola pantalla tipo Google Sheets dentro de Airtable)
+
+> El usuario abre el bloque → arrastra el Excel → en 5 segundos ve una hoja de cálculo 100% editable con:
+> - Colores automáticos por error/coincidencia
+> - Autocompletado de clientes al escribir
+> - Búsqueda de pedidos por monto
+> - Fórmulas de saldo en tiempo real
+> - Un solo botón: **"Importar y conciliar todo"**
+
+#### Interfaz completa (código listo para usar)
+
+```tsx
+<Box className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+  {/* Header */}
+  <Box className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-5 shadow-lg">
+    <div className="max-w-7xl mx-auto flex justify-between items-center">
+      <div className="flex items-center gap-4">
+        <FileSpreadsheet size={36} weight="fill" />
+        <div>
+          <Heading size="xl">Importador Inteligente de Estados de Cuenta</Heading>
+          <Text className="opacity-90">BBVA • Banorte • HSBC • Efectivo • Abonos Miris (2020–2025)</Text>
+        </div>
+      </div>
+      <div className="flex items-center gap-4">
+        <Badge variant="secondary" size="lg">
+          {data.length} transacciones • {errores.length} con alerta
+        </Badge>
+        <Button variant="secondary" onClick={autoDetectAll}>
+          <Wand2 className="mr-2" /> Auto-detectar todo
+        </Button>
+        <Button 
+          size="lg" 
+          className="bg-green-500 hover:bg-green-600"
+          onClick={importAndReconcile}
+          disabled={errores.length > 0 || isImporting}
+        >
+          {isImporting ? <Loader2 className="mr-2 animate-spin" /> : <CheckCircle weight="fill" className="mr-2" />}
+          Importar y conciliar ({data.length})
+        </Button>
+      </div>
+    </div>
+  </Box>
+
+  {/* Spreadsheet */}
+  <Box className="flex-1 overflow-hidden">
+    <Spreadsheet
+      data={data}
+      onChange={setData}
+      columnLabels={[
+        "Fecha", "Descripción", "Cargo", "Abono", "Saldo",
+        "Cuenta", "Cliente", "Distribuidora", "Pedido", "Cotejado", "Notas"
+      ]}
+      getCellClassName={getCellClassName}
+      DataViewer={CustomDataViewer}
+      DataEditor={CustomDataEditor}
+    />
+  </Box>
+
+  {/* Banner de errores */}
+  {errores.length > 0 && (
+    <Box className="fixed bottom-0 left-0 right-0 bg-red-600 text-white p-4 shadow-2xl z-50">
+      <div className="max-w-7xl mx-auto flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <AlertTriangle weight="fill" size={28} />
+          <div>
+            <strong>{errores.length} transacciones requieren atención</strong>
+            <span className="ml-4 opacity-90">
+              → {errores.filter(e => e.type === 'overpayment').length} abonos extras • 
+              {errores.filter(e => e.type === 'underpayment').length} faltantes • 
+              {errores.filter(e => e.type === 'unlinked_expense').length} gastos sin pedido
+            </span>
+          </div>
+        </div>
+        <Button variant="light" size="sm" onClick={() => scrollToRow(errores[0].row)}>
+          Ir al primer error
+        </Button>
+      </div>
+    </Box>
+  )}
+</Box>
+```
+
+#### Reglas de coloreado condicional (getCellClassName)
+
+```ts
+const getCellClassName = ({ row, column }) => {
+  const t = transacciones[row];
+  if (!t) return "";
+
+  // Diferencia de monto
+  if (column === 2 || column === 3) {
+    const real = column === 3 ? t.abono : t.cargo;
+    const expected = t.montoEsperadoPedido;
+    if (expected && Math.abs(real - expected) > 0.01) {
+      return real > expected 
+        ? "bg-yellow-300 border-l-8 border-yellow-600 font-bold" 
+        : "bg-red-300 border-l-8 border-red-600 font-bold";
+    }
+  }
+
+  // Conciliado
+  if (t.cotejado) return "bg-green-100 line-through opacity-70";
+
+  // Auto-detectado
+  if (t.auto) return "bg-blue-100 border-l-4 border-blue-500";
+
+  // Gasto sin pedido
+  if (t.cargo > 0 && !t.pedido) return "bg-orange-100 border-l-4 border-orange-600";
+
+  // Abono sin cliente
+  if (t.abono > 0 && !t.cliente) return "bg-purple-100 border-l-4 border-purple-600";
+
+  return "";
+};
+```
+
+#### Componentes personalizados para celdas
+
+```tsx
+const ClienteEditor = ({ value, onCommit }) => {
+  const clientes = useRecords(clientesTable);
+  const options = clientes.map(c => ({
+    label: `${c.getCellValueAsString("Nombre")} ${c.getCellValueAsString("Apellido")}`,
+    value: c.id
+  }));
+
+  return (
+    <Autocomplete
+      options={options}
+      value={value}
+      onValueChange={onCommit}
+      placeholder="Escribe nombre..."
+      className="w-full"
+    />
+  );
+};
+
+const PedidoPicker = ({ value, onCommit, row }) => {
+  const clienteId = transacciones[row]?.clienteId;
+  const monto = transacciones[row]?.abono || transacciones[row]?.cargo;
+
+  return (
+    <PedidoSearch 
+      clienteId={clienteId}
+      monto={monto}
+      onSelect={(p) => onCommit(p.numero)}
+    />
+  );
+};
+```
+
+#### Pasos para implementar esta interfaz (guía paso a paso)
+
+```markdown
+### Pasos de implementación (para desarrolladores)
+
+1. **Instalar react-spreadsheet**
+   ```bash
+   npm install react-spreadsheet
+   ```
+
+2. **Parsear Excel con SheetJS**
+   ```tsx
+   import * as XLSX from 'xlsx';
+   const workbook = XLSX.read(file, { type: 'array' });
+   const sheet = workbook.Sheets[workbook.SheetNames[0]];
+   const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+   ```
+
+3. **Convertir a formato react-spreadsheet**
+   ```ts
+   const data = rawData.slice(3).map(row => [
+     { value: parseDate(row[0]) },
+     { value: row[1] },
+     { value: parseFloat(row[2]) || 0 },
+     { value: parseFloat(row[3]) || 0 },
+     { value: 0 }, // Saldo calculado
+     { value: detectarCuenta(row[1]) },
+     { value: "" }, // Cliente (editable)
+     { value: "" }, // Distribuidora
+     { value: "" }, // Pedido
+     { value: false }, // Cotejado
+     { value: "" }
+   ]);
+   ```
+
+4. **Auto-detección masiva**
+   ```ts
+   const autoDetectAll = () => {
+     const updated = data.map((row, i) => {
+       const desc = row[1].value?.toString() || "";
+       const monto = row[3].value || row[2].value;
+
+       // Detectar cliente
+       const cliente = detectarClientePorDescripcion(desc);
+       if (cliente) row[6] = { value: cliente.nombre, recordId: cliente.id, auto: true };
+
+       // Detectar pedido
+       const pedido = buscarPedido(monto, cliente?.id, desc);
+       if (pedido) {
+         row[8] = { value: pedido.numero, recordId: pedido.id };
+         if (Math.abs(monto - pedido.total) < 0.01) row[9] = { value: true };
+       }
+
+       return row;
+     });
+     setData(updated);
+   };
+   ```
+
+5. **Importar y conciliar**
+   ```ts
+   const importAndReconcile = async () => {
+     setIsImporting(true);
+     for (const [i, row] of data.entries()) {
+       if (row[9].value) { // Cotejado
+         const transaccion = await transaccionesTable.createRecordAsync({
+           Fecha: row[0].value,
+           Descripción: row[1].value,
+           Cargo: row[2].value,
+           Abono: row[3].value,
+           Cliente: row[6].recordId ? [row[6].recordId] : [],
+           Pedido: row[8].recordId ? [row[8].recordId] : [],
+           Cotejado: true
+         });
+
+         if (row[8].recordId) {
+           await pagosTable.createRecordAsync({
+             Pedido: [row[8].recordId],
+             Monto: row[3].value || row[2].value,
+             'Transacción Relacionada': [transaccion.id]
+           });
+         }
+       }
+     }
+     toast.success("Importación completada y conciliada");
+   };
+   };
+   ```
+
+**Commit message:**
+```
+feat(importador): implementar interfaz completa con react-spreadsheet + auto-detección + conciliación inteligente
+```
+
+¡Esta es la versión definitiva! Reemplaza todo el contenido anterior con este bloque exacto.
+```
+
 ## Current Database Structure
 
 This section will contain the current Airtable base structure (base metadata, tables, and fields) fetched via the Interface API. To populate this section:
