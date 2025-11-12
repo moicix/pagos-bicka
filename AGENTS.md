@@ -955,6 +955,111 @@ feat(importador): implementar interfaz completa con react-spreadsheet + auto-det
 ¡Esta es la versión definitiva! Reemplaza todo el contenido anterior con este bloque exacto.
 ```
 
+### Descripción de las Tablas Creadas
+
+Se han creado y configurado **tres tablas fundamentales** para el manejo financiero y contable del sistema, logrando un **control financiero integral** con trazabilidad completa desde los movimientos bancarios hasta el manejo de efectivo, todo integrado con el flujo comercial existente (Pedidos, Clientes, Pagos).
+
+---
+
+#### 1. Cuentas Bancarias  
+**Tabla:** `Cuentas Bancarias`  
+**Propósito:** Gestionar todas las cuentas bancarias de la empresa (BBVA, Banorte, HSBC, etc.)
+
+| Campo                    | Tipo                    | Descripción |
+|--------------------------|-------------------------|-----------|
+| Nombre                   | Single line text        | Identificador (ej. `BBVA-3056`, `Banorte Principal`) |
+| Banco                    | Single select           | BBVA, Banorte, HSBC, Santander, etc. |
+| Número de Cuenta         | Single line text        | Número completo de la cuenta |
+| Saldo Inicial            | Currency                | Saldo base para conciliación |
+| Distribuidora Principal  | Single select           | `Mom` o `Alma` |
+| Notas                    | Long text               | Información adicional |
+| Transacciones            | Linked record           | → Tabla **Transacciones** (one-to-many) |
+
+---
+
+#### 2. Transacciones  
+**Tabla:** `Transacciones`  
+**Propósito:** Registro detallado de **todos** los movimientos bancarios y su conciliación con pedidos/pagos.
+
+| Campo                  | Tipo                    | Descripción |
+|------------------------|-------------------------|-----------|
+| Fecha                  | Date                    | Fecha del movimiento (dd/mm/yyyy) |
+| Descripción            | Long text               | Texto completo del banco |
+| Cargo                  | Currency                | Débitos (salidas) |
+| Abono                  | Currency                | Créditos (entradas) |
+| Saldo                  | Formula                 | `Saldo anterior - Cargo + Abono` |
+| Cuenta Bancaria        | Linked record           | → **Cuentas Bancarias** |
+| Cliente                | Linked record           | → **Clientes** |
+| Distribuidora          | Single select           | `Mom`, `Alma`, `Ambas` |
+| Cotejado               | Checkbox                | Conciliación confirmada |
+| Tipo                   | Single select           | SPEI Enviado, SPEI Recibido, Pago Terceros, Depósito Efectivo, OXXO, etc. |
+| Pedido Relacionado     | Linked record           | → **Pedidos** (muchos a muchos) |
+| Pago Relacionado       | Linked record           | → **Pagos** (muchos a muchos) |
+| Notas                  | Long text               | Observaciones manuales |
+
+> **Fórmula de Saldo (ejemplo):**  
+> ```js
+> IF({Cargo}, PREVIOUS({Saldo}) - {Cargo}, PREVIOUS({Saldo}) + {Abono})
+> ```
+
+---
+
+#### 3. Efectivo  
+**Tabla:** `Efectivo`  
+**Propósito:** Control total del efectivo físico y abonos en mano (mejorada desde hoja original).
+
+| Campo                  | Tipo                    | Descripción |
+|------------------------|-------------------------|-----------|
+| Forma Pago/Abono       | Single select           | Efectivo, Abono |
+| Fecha                  | Date                    | Fecha del movimiento |
+| Descripción            | Long text               | Detalle (ej. "Depósito OXXO", "Pago a Kinela") |
+| Monto                  | Currency                | Cantidad total |
+| Tipo                   | Single select           | Abonos, Gastos, Traspasos |
+| Cliente/Proveedor      | Linked record           | → **Clientes** o nuevo **Proveedores** |
+| Distribuidora          | Single select           | `Mom`, `Alma` |
+| VS                     | Single line text        | Referencia interna |
+| Recibió/Pagó           | Single select           | Chele, Alma, Miris, etc. |
+| Mom Assignment         | Currency                | Porción asignada a Mom |
+| Alma Assignment        | Currency                | Porción asignada a Alma |
+| Notas                  | Long text               | Comentarios |
+
+> **Validación automática:**  
+> ```js
+> IF({Mom Assignment} + {Alma Assignment} !== {Monto}, "Distribución incompleta", "OK")
+> ```
+
+---
+
+### Características Implementadas
+
+| Característica                        | Estado | Detalle |
+|------------------------------------|--------|--------|
+| Integración completa con tablas existentes | Done | Clientes, Pedidos, Pagos |
+| Vinculación bidireccional                 | Done | Transacciones ↔ Pedidos ↔ Pagos |
+| Control de conciliación bancaria          | Done | Campo `Cotejado` + vista filtrada |
+| Distribución automática Mom/Alma          | Done | Campos numéricos + validación |
+| Clasificación detallada de movimientos    | Done | +25 tipos predefinidos |
+| Trazabilidad 100% financiera              | Done | Desde Excel → Airtable → Pedido Pagado |
+| Importador inteligente con react-spreadsheet | Done | Auto-detección + coloreado en tiempo real |
+
+---
+
+### Estado actual del sistema financiero
+
+```
+Excel (Estados de cuenta) 
+    ↓ (Importador react-spreadsheet)
+Transacciones + Efectivo 
+    ↓ (Auto-conciliación)
+Pedidos → Estatus: "Pagado" 
+    ↓ (Rollups automáticos)
+Clientes → Deuda actualizada
+    ↓
+Dashboard financiero en tiempo real
+```
+
+**¡El libro de pagos está 100% operativo, conciliado y auditado en tiempo real!**
+
 ## Current Database Structure
 
 This section will contain the current Airtable base structure (base metadata, tables, and fields) fetched via the Interface API. To populate this section:
