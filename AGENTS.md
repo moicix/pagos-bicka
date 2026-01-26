@@ -658,407 +658,87 @@ loadScriptFromURLAsync('https://example.com/script.js');
 
 ### Payment Ledger Implementation
 
-Grokcode, please update the `agents.md` file by appending a new subsection under "**Airtable Interface Extension Development**" titled "**Payment Ledger Implementation**". This subsection should incorporate knowledge from the analyzed Excel file "Nuevo Banco 2025 2.xlsx", which contains bank statements and cash logs for tracking payments, deposits, charges, and abonos (credits) across multiple accounts and distributors. Structure the content in Markdown, describing how to extend the existing Airtable database (based on prior structures like Marcas, Pedidos, Líneas de Pedido, Clientes, Pagos, Métodos de Pago Admin/Clientes) to handle a "libro de pagos" (payment ledger). Focus on new tables, fields, links, validations, and scripts for importing/reconciling data.
+La sección financiera aprovecha los estados de cuenta del Excel `Nuevo Banco 2025 2.xlsx` para consolidar un libro de pagos que controla cuentas bancarias, transacciones y efectivo, todo enlazado con las tablas ya vigentes (Marcas, Pedidos, Líneas de Pedido, Clientes, Pagos y los catálogos de Métodos de Pago). El objetivo es conciliar cada cargo/abono, actualizar estatus de pago y generar un dashboard que refleje el saldo real de cada distribuidora.
 
-Analyze the current database structure from memories: It includes tables for brands (Marcas with validation on Nombre and Método de Pedido), orders (Pedidos with Fecha, Marca, Status, Total Precio Cliente, Costo de Devolución as rollup from Devoluciones, Tipo like "Admin" for non-client purchases, and validation requiring key fields), order lines (Líneas de Pedido with No. de Pedido, Estatus like "Confirmar y Monitorear" or "Solicitado", Costo/Precio Cliente), clients (Clientes with Deuda Pendiente rollup), payments (Pagos linked to Pedidos, with Monto, Método de Pago, Fecha Pago, Abono, Notas, Tipo de Pago for admin/client distinction), and separate methods tables (Métodos de Pago Admin for SPEI/Tarjeta Crédito/Efectivo/Vales/Transferencia, Métodos de Pago Clientes for Efectivo/Deposito OXXO). Scripts handle grouping lines, creating pedidos, updating statuses (e.g., "Pendiente de Pago", "Pago Incompleto", "Pagado" based on brand and payment completeness), input validation for dates/numbers, and using Costo for totals.
+#### Nuevas tablas del libro de pagos
 
-Detect possible additions:
-- **New Tables**:
-  - Cuentas Bancarias: Fields - Nombre (e.g., "BBVA-3056"), Banco (e.g., "BBVA", "Banorte"), Número de Cuenta (e.g., "1557520336"), Saldo Inicial (number), Distribuidora Principal (single select: "Mom", "Alma").
-  - Transacciones: Fields - Fecha (date), Descripción (long text), Cargo (number, for debits), Abono (number, for credits), Saldo (formula: previous Saldo - Cargo + Abono), Cuenta Bancaria (link to Cuentas Bancarias), Cliente (link to Clientes), Distribuidora (single select: "Mom", "Alma"), Cotejado (checkbox for reconciliation), Tipo (single select: "SPEI Enviado", "SPEI Recibido", "Pago Cuenta Tercero", "Deposito Efectivo", "OXXO", etc.), Pedido Relacionado (link to Pedidos), Pago Relacionado (link to Pagos), Notas (long text).
-  - Efectivo (or integrate into Transacciones with a "Efectivo" account): Fields - Forma Pago/Abono (single select: "Efectivo", "Abono"), Fecha, Descripción, Monto (number), Tipo (e.g., "Abonos"), Cliente/Proveedor (link to Clientes or new Proveedores table), Distribuidora, VS, Recibio/Pago (single select: "Chele", "Alma", etc.), Mom/Alma assignments (numbers for splits).
+| Tabla | Propósito | Campos clave |
+| --- | --- | --- |
+| **Cuentas Bancarias** | Administra cada cuenta física (BBVA, Banorte, HSBC, efectivo) y asigna quién la opera | `Nombre`, `Banco`, `Número de Cuenta`, `Saldo` (fórmula), `Distribuidora Principal`, `Notas`, `Transacciones` (linked record) |
+| **Transacciones** | Captura cargos y abonos, relacionándolos con clientes, pedidos y pagos | `Fecha`, `Descripción`, `Cargo`, `Abono`, `Saldo` (fórmula acumulada), `Cuenta Bancaria`, `Cliente`, `Distribuidora`, `Cotejado`, `Tipo`, `Pedido Relacionado`, `Pago Relacionado`, `Notas` |
+| **Efectivo** | Lleva el control del efectivo físico y reparte montos entre Mom/Alma | `Forma Pago/Abono`, `Fecha`, `Descripción`, `Monto`, `Tipo`, `Cliente/Proveedor`, `Distribuidora`, `VS`, `Recibió/Pagó`, `Mom Assignment`, `Alma Assignment`, `Notas` |
 
-- **Field Additions to Existing Tables**:
-  - Pagos: Add Transacción Relacionada (link to Transacciones), for linking bank/cash entries to payments.
-  - Pedidos: Add Saldo Pagado (rollup from Pagos: sum(Monto)), Estatus Pago (formula: IF(Saldo Pagado >= Total Precio Cliente, "Pagado", IF(Saldo Pagado > 0, "Pago Incompleto", "Pendiente de Pago"))), considering brand-specific logic (e.g., from brandStatus constant for Belcorp, Price Shoes, etc.).
-  - Clientes: Add Abonos Total (rollup from Transacciones or Efectivo: sum(Abono where linked)), Deuda Actualizada (formula: Deuda Pendiente - Abonos Total).
-  - Marcas: Add Costos Adicionales por Marca (number or lookup), to handle varying fees like Costo envio, Guia devolucion.
+Los campos siguen la lógica del extracto bancario: por ejemplo, `Saldo` en Transacciones se calcula con algo como `PREVIOUS({Saldo}) - {Cargo} + {Abono}`, mientras que Efectivo valida que `Mom Assignment + Alma Assignment === Monto` antes de cerrar la entrada.
 
-- **Links and Relationships**:
-  - Transacciones links to Cuentas Bancarias (many-to-one), Clientes (many-to-one), Pedidos (many-to-many), Pagos (many-to-many).
-  - Efectivo links to Clientes, Pedidos, Pagos.
-  - Use lookups/rollups for totals, e.g., in Pedidos: Rollup of Transacciones.Abono for payments received.
-  - Validations: Formulas in Transacciones for balance consistency, required fields like Fecha/Descripción; in Pagos for matching Monto to linked Transacciones.
+#### Añadidos a las tablas existentes
 
-- **Scripts and Automations**:
-  - Import script: Use Airtable Scripting to parse Excel, group by account/date, create Transacciones records, link to Clientes/Pedidos based on Descripción matches (e.g., regex for client names like "Kinela", "Better Sem").
-  - Reconciliation: Script to update Cotejado, match to Pagos, handle splits (Mom/Alma columns for amount allocation).
-  - Status updates: Extend existing scripts to set Estatus based on transaction data, offer payment method selection, handle partial payments.
-  - Date/numeric validation: As before, parse dd/mm/yy, ensure non-negative.
+- **Pagos** recibe `Transacción Relacionada` (link a Transacciones) para vincular los cobros físicos con el ledger bancario.
+- **Pedidos** ahora tiene `Saldo Pagado` (rollup sobre `Pagos.Monto`) y `Estatus Pago` (fórmula que clasifica como `Pagado`, `Pago Incompleto` o `Pendiente de Pago` según el total y la marca, replicando la lógica de `brandStatus`).
+- **Clientes** usa `Abonos Total` (rollup de `Transacciones.Abono`/`Efectivo.Monto`) y `Deuda Actualizada` (`Deuda Pendiente - Abonos Total`) para reflejar lo que aún debe cada cliente.
+- **Marcas** suma `Costos Adicionales por Marca` (número o lookup) para contactos como Belcorp o Price Shoes que exigen cargos extras (envío, guía de devolución, etc.).
 
-- **Examples**:
-  ```js
-  const base = useBase();
-  const transaccionesTable = base.getTable('Transacciones');
-  // Create transaction from import
-  await transaccionesTable.createRecordAsync({
-    'Fecha': new Date('2025-09-17'),
-    'Descripción': 'SPEI ENVIADO SANTANDER / 0062430077',
-    'Cargo': 507.31,
-    'Cliente': [{id: clientRecord.id}] // Link to Clientes
-  });
-  ```
+#### Relaciones y validaciones
 
-### UX/UI – Importador de Estados de Cuenta y Conciliación de Pagos (react-spreadsheet)
+El modelo liga Transacciones con Cuentas Bancarias, Clientes, Pedidos y Pagos; Efectivo también enlaza a Clientes/Pedidos/Pagos. Rollups y lookups mantienen:
 
-#### Librería principal
-```tsx
-import Spreadsheet from "react-spreadsheet";
-// Documentación oficial: https://iddan.github.io/react-spreadsheet/docs/
+- `Pedidos`: rollup de `Transacciones.Abono` y `Pagos.Monto` para calcular pagos acumulados, `Status` que considera marca y tipo de pedido, y un campo `Saldo Restante` que alimenta el dashboard.
+- `Clientes`: campos como `Último Pago` y `Deuda Actualizada` que responden en tiempo real cuando se importan abonos.
+- `Cuentas Bancarias`: `Saldo Actual` (basado en el `Saldo` más reciente de Transacciones) y un indicador de `Discrepancia` frente al saldo oficial.
+
+Las validaciones verifican fechas (dd/mm/yyyy), montos no negativos y que campos obligatorios (Fecha, Descripción, Cuenta) estén presentes antes de crear registros.
+
+#### Scripts y automatizaciones
+
+1. **Importador**: un script (dentro del bloque o Airtable Scripting) lee `Nuevo Banco 2025 2.xlsx` con SheetJS, agrupa filas por cuenta/fecha y crea Transacciones. Usa heurísticas (regex en la descripción, montos, cliente sugerido) para asignar `Cliente`, `Distribuidora`, `Pedido` y `Tipo`.
+2. **Conciliación**: por cada fila cotejada se marca `Cotejado`, se crea o vincula un `Pago` con `Transacción Relacionada`, y se reparten los montos entre Mom y Alma para las entradas de efectivo.
+3. **Estatus de pago**: los scripts existentes que actualizan Pedidos se extienden para respetar los nuevos rollups (`Saldo Pagado`, `Deuda Actualizada`) y cambian el `Status` (e.g., `Pagado`, `Pago Incompleto`, `Pendiente de Pago`) en base a reglas de la marca y el tipo de método de pago.
+4. **Validaciones de permisos**: antes de editar se revisan `table.hasPermissionToCreateRecords`/`hasPermissionToUpdateRecords`, y se limpian datos (convertir strings a números, formatear fechas) para evitar errores en los imports.
+
+Ejemplo de creación de transacción desde el importador:
+
+```js
+const base = useBase();
+const transaccionesTable = base.getTableByName('Transacciones');
+await transaccionesTable.createRecordAsync({
+  Fecha: new Date('2025-09-17'),
+  Descripción: 'SPEI ENVIADO SANTANDER / 0062430077',
+  Cargo: 507.31,
+  Cliente: clientRecord ? [clientRecord.id] : [],
+});
 ```
 
-#### Experiencia de usuario final (una sola pantalla tipo Google Sheets dentro de Airtable)
+#### Interfaz y experiencia del importador (`react-spreadsheet`)
 
-> El usuario abre el bloque → arrastra el Excel → en 5 segundos ve una hoja de cálculo 100% editable con:
-> - Colores automáticos por error/coincidencia
-> - Autocompletado de clientes al escribir
-> - Búsqueda de pedidos por monto
-> - Fórmulas de saldo en tiempo real
-> - Un solo botón: **"Importar y conciliar todo"**
+El panel principal (`frontend/index.js`) presenta una tarjeta con pestañas para `Cuentas Bancarias`, `Transacciones` y `Efectivo`. Cada vista consume datos reales con `useRecords`, y el botón **Importar Datos** abre `SpreadsheetPopup`, que:
 
-#### Interfaz completa (código listo para usar)
+- usa `react-spreadsheet` para mostrar una cuadrícula editable donde el usuario puede pegar filas del Excel o arrastrar el archivo completo.
+- permite mapear columnas (Fecha, Cargo, Abono, Cuenta, Cliente, Pedido, Cotejado, Notas) sin duplicados y detecta automáticamente columnas nuevas al “patear” el encabezado.
+- carga datos de muestra para cuentas como `BBVA-3056`, `Banorte`, `HSBC` o `Efectivo` (`ACCOUNT_DATA`), mantiene el ancho de columnas con `measureHeaderWidths` y aplica reglas de coloreado (`getCellClassName`) para mostrar discrepancias, gastos sin pedido y abonos sin cliente.
+- ofrece acciones rápidas: limpiar, deshacer (Ctrl+Z), auto-detección (`autoDetectAll`) y `Importar y conciliar`, con estados de carga y notificaciones (toasts).
 
-```tsx
-<Box className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-  {/* Header */}
-  <Box className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-5 shadow-lg">
-    <div className="max-w-7xl mx-auto flex justify-between items-center">
-      <div className="flex items-center gap-4">
-        <FileSpreadsheet size={36} weight="fill" />
-        <div>
-          <Heading size="xl">Importador Inteligente de Estados de Cuenta</Heading>
-          <Text className="opacity-90">BBVA • Banorte • HSBC • Efectivo • Abonos Miris (2020–2025)</Text>
-        </div>
-      </div>
-      <div className="flex items-center gap-4">
-        <Badge variant="secondary" size="lg">
-          {data.length} transacciones • {errores.length} con alerta
-        </Badge>
-        <Button variant="secondary" onClick={autoDetectAll}>
-          <Wand2 className="mr-2" /> Auto-detectar todo
-        </Button>
-        <Button 
-          size="lg" 
-          className="bg-green-500 hover:bg-green-600"
-          onClick={importAndReconcile}
-          disabled={errores.length > 0 || isImporting}
-        >
-          {isImporting ? <Loader2 className="mr-2 animate-spin" /> : <CheckCircle weight="fill" className="mr-2" />}
-          Importar y conciliar ({data.length})
-        </Button>
-      </div>
-    </div>
-  </Box>
+El proceso completo es:
 
-  {/* Spreadsheet */}
-  <Box className="flex-1 overflow-hidden">
-    <Spreadsheet
-      data={data}
-      onChange={setData}
-      columnLabels={[
-        "Fecha", "Descripción", "Cargo", "Abono", "Saldo",
-        "Cuenta", "Cliente", "Distribuidora", "Pedido", "Cotejado", "Notas"
-      ]}
-      getCellClassName={getCellClassName}
-      DataViewer={CustomDataViewer}
-      DataEditor={CustomDataEditor}
-    />
-  </Box>
+1. Elegir la cuenta/método y pegar el extracto.
+2. Mapear columnas y ajustar datos (cliente, pedido, distribuidora, cotejado).
+3. Ejecutar `autoDetectAll` para sugerencias inteligentes (clientes, pedidos basados en monto y descripción).
+4. Hacer clic en **Importar y conciliar** para escribir Transacciones, vincular Pagos y actualizar rollups.
 
-  {/* Banner de errores */}
-  {errores.length > 0 && (
-    <Box className="fixed bottom-0 left-0 right-0 bg-red-600 text-white p-4 shadow-2xl z-50">
-      <div className="max-w-7xl mx-auto flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <AlertTriangle weight="fill" size={28} />
-          <div>
-            <strong>{errores.length} transacciones requieren atención</strong>
-            <span className="ml-4 opacity-90">
-              → {errores.filter(e => e.type === 'overpayment').length} abonos extras • 
-              {errores.filter(e => e.type === 'underpayment').length} faltantes • 
-              {errores.filter(e => e.type === 'unlinked_expense').length} gastos sin pedido
-            </span>
-          </div>
-        </div>
-        <Button variant="light" size="sm" onClick={() => scrollToRow(errores[0].row)}>
-          Ir al primer error
-        </Button>
-      </div>
-    </Box>
-  )}
-</Box>
-```
-
-#### Reglas de coloreado condicional (getCellClassName)
-
-```ts
-const getCellClassName = ({ row, column }) => {
-  const t = transacciones[row];
-  if (!t) return "";
-
-  // Diferencia de monto
-  if (column === 2 || column === 3) {
-    const real = column === 3 ? t.abono : t.cargo;
-    const expected = t.montoEsperadoPedido;
-    if (expected && Math.abs(real - expected) > 0.01) {
-      return real > expected 
-        ? "bg-yellow-300 border-l-8 border-yellow-600 font-bold" 
-        : "bg-red-300 border-l-8 border-red-600 font-bold";
-    }
-  }
-
-  // Conciliado
-  if (t.cotejado) return "bg-green-100 line-through opacity-70";
-
-  // Auto-detectado
-  if (t.auto) return "bg-blue-100 border-l-4 border-blue-500";
-
-  // Gasto sin pedido
-  if (t.cargo > 0 && !t.pedido) return "bg-orange-100 border-l-4 border-orange-600";
-
-  // Abono sin cliente
-  if (t.abono > 0 && !t.cliente) return "bg-purple-100 border-l-4 border-purple-600";
-
-  return "";
-};
-```
-
-#### Componentes personalizados para celdas
-
-```tsx
-const ClienteEditor = ({ value, onCommit }) => {
-  const clientes = useRecords(clientesTable);
-  const options = clientes.map(c => ({
-    label: `${c.getCellValueAsString("Nombre")} ${c.getCellValueAsString("Apellido")}`,
-    value: c.id
-  }));
-
-  return (
-    <Autocomplete
-      options={options}
-      value={value}
-      onValueChange={onCommit}
-      placeholder="Escribe nombre..."
-      className="w-full"
-    />
-  );
-};
-
-const PedidoPicker = ({ value, onCommit, row }) => {
-  const clienteId = transacciones[row]?.clienteId;
-  const monto = transacciones[row]?.abono || transacciones[row]?.cargo;
-
-  return (
-    <PedidoSearch 
-      clienteId={clienteId}
-      monto={monto}
-      onSelect={(p) => onCommit(p.numero)}
-    />
-  );
-};
-```
-
-#### Pasos para implementar esta interfaz (guía paso a paso)
-
-```markdown
-### Pasos de implementación (para desarrolladores)
-
-1. **Instalar react-spreadsheet**
-   ```bash
-   npm install react-spreadsheet
-   ```
-
-2. **Parsear Excel con SheetJS**
-   ```tsx
-   import * as XLSX from 'xlsx';
-   const workbook = XLSX.read(file, { type: 'array' });
-   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-   const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-   ```
-
-3. **Convertir a formato react-spreadsheet**
-   ```ts
-   const data = rawData.slice(3).map(row => [
-     { value: parseDate(row[0]) },
-     { value: row[1] },
-     { value: parseFloat(row[2]) || 0 },
-     { value: parseFloat(row[3]) || 0 },
-     { value: 0 }, // Saldo calculado
-     { value: detectarCuenta(row[1]) },
-     { value: "" }, // Cliente (editable)
-     { value: "" }, // Distribuidora
-     { value: "" }, // Pedido
-     { value: false }, // Cotejado
-     { value: "" }
-   ]);
-   ```
-
-4. **Auto-detección masiva**
-   ```ts
-   const autoDetectAll = () => {
-     const updated = data.map((row, i) => {
-       const desc = row[1].value?.toString() || "";
-       const monto = row[3].value || row[2].value;
-
-       // Detectar cliente
-       const cliente = detectarClientePorDescripcion(desc);
-       if (cliente) row[6] = { value: cliente.nombre, recordId: cliente.id, auto: true };
-
-       // Detectar pedido
-       const pedido = buscarPedido(monto, cliente?.id, desc);
-       if (pedido) {
-         row[8] = { value: pedido.numero, recordId: pedido.id };
-         if (Math.abs(monto - pedido.total) < 0.01) row[9] = { value: true };
-       }
-
-       return row;
-     });
-     setData(updated);
-   };
-   ```
-
-5. **Importar y conciliar**
-   ```ts
-   const importAndReconcile = async () => {
-     setIsImporting(true);
-     for (const [i, row] of data.entries()) {
-       if (row[9].value) { // Cotejado
-         const transaccion = await transaccionesTable.createRecordAsync({
-           Fecha: row[0].value,
-           Descripción: row[1].value,
-           Cargo: row[2].value,
-           Abono: row[3].value,
-           Cliente: row[6].recordId ? [row[6].recordId] : [],
-           Pedido: row[8].recordId ? [row[8].recordId] : [],
-           Cotejado: true
-         });
-
-         if (row[8].recordId) {
-           await pagosTable.createRecordAsync({
-             Pedido: [row[8].recordId],
-             Monto: row[3].value || row[2].value,
-             'Transacción Relacionada': [transaccion.id]
-           });
-         }
-       }
-     }
-     toast.success("Importación completada y conciliada");
-   };
-   };
-   ```
-
-**Commit message:**
-```
-feat(importador): implementar interfaz completa con react-spreadsheet + auto-detección + conciliación inteligente
-```
-
-¡Esta es la versión definitiva! Reemplaza todo el contenido anterior con este bloque exacto.
-```
-
-### Descripción de las Tablas Creadas
-
-Se han creado y configurado **tres tablas fundamentales** para el manejo financiero y contable del sistema, logrando un **control financiero integral** con trazabilidad completa desde los movimientos bancarios hasta el manejo de efectivo, todo integrado con el flujo comercial existente (Pedidos, Clientes, Pagos).
-
----
-
-#### 1. Cuentas Bancarias  
-**Tabla:** `Cuentas Bancarias`  
-**Propósito:** Gestionar todas las cuentas bancarias de la empresa (BBVA, Banorte, HSBC, etc.)
-
-| Campo                    | Tipo                    | Descripción |
-|--------------------------|-------------------------|-----------|
-| Nombre                   | Single line text        | Identificador (ej. `BBVA-3056`, `Banorte Principal`) |
-| Banco                    | Single select           | BBVA, Banorte, HSBC, Santander, etc. |
-| Número de Cuenta         | Single line text        | Número completo de la cuenta |
-| Saldo Inicial            | Currency                | Saldo base para conciliación |
-| Distribuidora Principal  | Single select           | `Mom` o `Alma` |
-| Notas                    | Long text               | Información adicional |
-| Transacciones            | Linked record           | → Tabla **Transacciones** (one-to-many) |
-
----
-
-#### 2. Transacciones  
-**Tabla:** `Transacciones`  
-**Propósito:** Registro detallado de **todos** los movimientos bancarios y su conciliación con pedidos/pagos.
-
-| Campo                  | Tipo                    | Descripción |
-|------------------------|-------------------------|-----------|
-| Fecha                  | Date                    | Fecha del movimiento (dd/mm/yyyy) |
-| Descripción            | Long text               | Texto completo del banco |
-| Cargo                  | Currency                | Débitos (salidas) |
-| Abono                  | Currency                | Créditos (entradas) |
-| Saldo                  | Formula                 | `Saldo anterior - Cargo + Abono` |
-| Cuenta Bancaria        | Linked record           | → **Cuentas Bancarias** |
-| Cliente                | Linked record           | → **Clientes** |
-| Distribuidora          | Single select           | `Mom`, `Alma`, `Ambas` |
-| Cotejado               | Checkbox                | Conciliación confirmada |
-| Tipo                   | Single select           | SPEI Enviado, SPEI Recibido, Pago Terceros, Depósito Efectivo, OXXO, etc. |
-| Pedido Relacionado     | Linked record           | → **Pedidos** (muchos a muchos) |
-| Pago Relacionado       | Linked record           | → **Pagos** (muchos a muchos) |
-| Notas                  | Long text               | Observaciones manuales |
-
-> **Fórmula de Saldo (ejemplo):**  
-> ```js
-> IF({Cargo}, PREVIOUS({Saldo}) - {Cargo}, PREVIOUS({Saldo}) + {Abono})
-> ```
-
----
-
-#### 3. Efectivo  
-**Tabla:** `Efectivo`  
-**Propósito:** Control total del efectivo físico y abonos en mano (mejorada desde hoja original).
-
-| Campo                  | Tipo                    | Descripción |
-|------------------------|-------------------------|-----------|
-| Forma Pago/Abono       | Single select           | Efectivo, Abono |
-| Fecha                  | Date                    | Fecha del movimiento |
-| Descripción            | Long text               | Detalle (ej. "Depósito OXXO", "Pago a Kinela") |
-| Monto                  | Currency                | Cantidad total |
-| Tipo                   | Single select           | Abonos, Gastos, Traspasos |
-| Cliente/Proveedor      | Linked record           | → **Clientes** o nuevo **Proveedores** |
-| Distribuidora          | Single select           | `Mom`, `Alma` |
-| VS                     | Single line text        | Referencia interna |
-| Recibió/Pagó           | Single select           | Chele, Alma, Miris, etc. |
-| Mom Assignment         | Currency                | Porción asignada a Mom |
-| Alma Assignment        | Currency                | Porción asignada a Alma |
-| Notas                  | Long text               | Comentarios |
-
-> **Validación automática:**  
-> ```js
-> IF({Mom Assignment} + {Alma Assignment} !== {Monto}, "Distribución incompleta", "OK")
-> ```
-
----
-
-### Características Implementadas
-
-| Característica                        | Estado | Detalle |
-|------------------------------------|--------|--------|
-| Integración completa con tablas existentes | Done | Clientes, Pedidos, Pagos |
-| Vinculación bidireccional                 | Done | Transacciones ↔ Pedidos ↔ Pagos |
-| Control de conciliación bancaria          | Done | Campo `Cotejado` + vista filtrada |
-| Distribución automática Mom/Alma          | Done | Campos numéricos + validación |
-| Clasificación detallada de movimientos    | Done | +25 tipos predefinidos |
-| Trazabilidad 100% financiera              | Done | Desde Excel → Airtable → Pedido Pagado |
-| Importador inteligente con react-spreadsheet | Done | Auto-detección + coloreado en tiempo real |
-
----
-
-### Estado actual del sistema financiero
+#### Estado actual del sistema financiero
 
 ```
-Excel (Estados de cuenta) 
+Excel (Estados de cuenta)
     ↓ (Importador react-spreadsheet)
-Transacciones + Efectivo 
+Transacciones + Efectivo
     ↓ (Auto-conciliación)
-Pedidos → Estatus: "Pagado" 
+Pedidos → Estatus: "Pagado"/"Pago Incompleto"/"Pendiente de Pago"
     ↓ (Rollups automáticos)
-Clientes → Deuda actualizada
+Clientes → Deuda actualizada y alertas
     ↓
-Dashboard financiero en tiempo real
+Dashboard financiero en vivo (pestañas y conciliación)
 ```
 
-**¡El libro de pagos está 100% operativo, conciliado y auditado en tiempo real!**
+Las tres vistas ahora muestran datos reales desde `Cuentas Bancarias`, `Transacciones` y `Efectivo`, y el libro de pagos se puede auditar en tiempo real gracias a las conciliaciones automáticas.
+
 
 ## Current Database Structure
 

@@ -1,8 +1,34 @@
-const Efectivo = () => {
-  const data = [
-    { id: 1, forma: 'Efectivo', fecha: '2025-11-12', descripcion: 'Abono de cliente', monto: '1000', tipo: 'Abono', cliente: 'Cliente C', distribuidora: 'Mom', vs: '', recibio: 'Chele', momAssignment: '1000', almaAssignment: '0', notas: '' },
-    { id: 2, forma: 'Efectivo', fecha: '2025-11-12', descripcion: 'Gasto de oficina', monto: '200', tipo: 'Gasto', cliente: '', distribuidora: 'Alma', vs: '', recibio: 'Alma', momAssignment: '0', almaAssignment: '200', notas: '' },
-  ];
+import { useBase, useRecords } from '@airtable/blocks/interface/ui';
+import ConfigurationNotice from './ConfigurationNotice';
+
+const REQUIRED_FIELDS = [
+  { key: 'efectivoFechaField', label: 'Fecha' },
+  { key: 'efectivoDescripcionField', label: 'Descripción' },
+  { key: 'efectivoMontoField', label: 'Monto' },
+  { key: 'efectivoClienteField', label: 'Cliente/Proveedor' },
+  { key: 'efectivoNotasField', label: 'Notas' },
+];
+
+const Efectivo = ({ customPropertyValueByKey, errorState }) => {
+  const base = useBase();
+  const props = customPropertyValueByKey ?? {};
+  const table = props.efectivoTable;
+  const fallbackTable = base.tables[0];
+  const records = useRecords(table ?? fallbackTable);
+  const missingFields = REQUIRED_FIELDS.filter((field) => !props[field.key]);
+
+  if (!table || missingFields.length > 0) {
+    return (
+      <ConfigurationNotice
+        title="Efectivo"
+        tableMissing={!table}
+        missingFields={missingFields}
+        errorState={errorState}
+      />
+    );
+  }
+
+  const formatValue = (record, field) => (field ? record.getCellValueAsString(field) : '');
 
   return (
     <div>
@@ -11,37 +37,44 @@ const Efectivo = () => {
         <table className="min-w-full bg-white dark:bg-gray-800">
           <thead>
             <tr>
-              <th className="py-2 px-4 border-b dark:border-gray-700">Forma Pago/Abono</th>
               <th className="py-2 px-4 border-b dark:border-gray-700">Fecha</th>
               <th className="py-2 px-4 border-b dark:border-gray-700">Descripción</th>
               <th className="py-2 px-4 border-b dark:border-gray-700">Monto</th>
-              <th className="py-2 px-4 border-b dark:border-gray-700">Tipo</th>
               <th className="py-2 px-4 border-b dark:border-gray-700">Cliente/Proveedor</th>
-              <th className="py-2 px-4 border-b dark:border-gray-700">Distribuidora</th>
-              <th className="py-2 px-4 border-b dark:border-gray-700">VS</th>
-              <th className="py-2 px-4 border-b dark:border-gray-700">Recibió/Pagó</th>
-              <th className="py-2 px-4 border-b dark:border-gray-700">Mom Assignment</th>
-              <th className="py-2 px-4 border-b dark:border-gray-700">Alma Assignment</th>
               <th className="py-2 px-4 border-b dark:border-gray-700">Notas</th>
             </tr>
           </thead>
           <tbody>
-            {data.map((row) => (
-              <tr key={row.id}>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.forma}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.fecha}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.descripcion}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.monto}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.tipo}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.cliente}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.distribuidora}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.vs}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.recibio}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.momAssignment}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.almaAssignment}</td>
-                <td className="py-2 px-4 border-b dark:border-gray-700">{row.notas}</td>
+            {records.length === 0 ? (
+              <tr>
+                <td
+                  colSpan="5"
+                  className="py-6 px-4 text-center text-sm text-gray-500 dark:text-gray-400"
+                >
+                  Aún no hay registros de efectivo
+                </td>
               </tr>
-            ))}
+            ) : (
+              records.map((record) => (
+                <tr key={record.id}>
+                  <td className="py-2 px-4 border-b dark:border-gray-700">
+                    {formatValue(record, props.efectivoFechaField)}
+                  </td>
+                  <td className="py-2 px-4 border-b dark:border-gray-700">
+                    {formatValue(record, props.efectivoDescripcionField)}
+                  </td>
+                  <td className="py-2 px-4 border-b dark:border-gray-700">
+                    {formatValue(record, props.efectivoMontoField)}
+                  </td>
+                  <td className="py-2 px-4 border-b dark:border-gray-700">
+                    {formatValue(record, props.efectivoClienteField)}
+                  </td>
+                  <td className="py-2 px-4 border-b dark:border-gray-700">
+                    {formatValue(record, props.efectivoNotasField)}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

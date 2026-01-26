@@ -21,7 +21,7 @@ Scripts (also described in `AGENTS.md`) handle:
 ## Front-end extension experience
 The React-based UI sits in the `frontend` directory and exposes three main tabs plus an importer modal.
 
-- **Tabs** (`frontend/index.js`): Users switch between `Cuentas Bancarias`, `Transacciones`, and `Efectivo`. Each tab currently renders stubbed data tables, but layouts preview the intended fields and dark/light styling. For example, `CuentasBancarias.js` shows `Nombre`, `Banco`, `Número de Cuenta`, `Saldo Inicial`, and `Distribuidora Principal`, while `Transacciones.js` and `Efectivo.js` show the fields listed in the payment ledger design.
+- **Tabs** (`frontend/index.js`): Users switch between `Cuentas Bancarias`, `Transacciones`, and `Efectivo`. Each tab currently renders stubbed data tables, but layouts preview the intended fields and dark/light styling. For example, `CuentasBancarias.js` shows `Nombre`, `Banco`, `Número de Cuenta`, `Saldo` (formula extracting the latest balance), and `Distribuidora Principal`, while `Transacciones.js` and `Efectivo.js` show the fields listed in the payment ledger design.
 - **Spreadsheet popup** (`frontend/SpreadsheetPopup.js`): Clicking “Importar Datos” opens a modal powered by `react-spreadsheet`. The popup:
   - Lets the user choose an account or method (BBVA-3056, BBVA-3273, Banorte, HSBC, Efectivo) to load canned sample rows from `ACCOUNT_DATA`.
   - Dynamically maps spreadsheet columns to the ledger schema (`Fecha`, `Descripción`, `Cargo`, `Abono`, `Saldo`, etc.) with dropdowns that prevent duplicate column selections.

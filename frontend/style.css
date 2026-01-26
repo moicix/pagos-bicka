@@ -29,3 +29,12 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.spreadsheet-discrepancy-row {
+  background-color: rgba(248, 113, 113, 0.16);
+}
+
+.spreadsheet-discrepancy-row th,
+.spreadsheet-discrepancy-row td {
+  background-color: transparent !important;
+}
